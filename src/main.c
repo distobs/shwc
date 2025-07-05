@@ -1,4 +1,5 @@
 #define _POSIX_C_SOURCE 200112L
+#include <errno.h>
 #include <stdio.h>
 #include <string.h>
 #include <sys/types.h>
@@ -7,12 +8,18 @@
 #include <unistd.h>
 #include <stdlib.h>
 
+#define report(func, err) fprintf(stderr, "%s:%d (%s): %s\n", __FILE__, \
+		__LINE__, func, err)
+#define trace(func) fprintf(stderr, "%s:%d (%s)\n", __FILE__, \
+		__LINE__, func)
+
+
 int
-main(void)
+setup_listening(int *sockfd, struct addrinfo **info)
 {
-	int status, sockfd;
+	int tmp = 1;
+	int status;
 	struct addrinfo hints;
-	struct addrinfo *info;
 
 	memset(&hints, 0, sizeof(hints));
 
@@ -20,63 +27,92 @@ main(void)
 	hints.ai_socktype = SOCK_STREAM;
 	hints.ai_flags = AI_PASSIVE;
 
-	status = getaddrinfo(NULL, "9012", &hints, &info);
+	status = getaddrinfo(NULL, "8080", &hints, info);
 
 	if (status != 0) {
-		fputs("lascou", stderr);
+		report(__func__, gai_strerror(status));
+		return EXIT_FAILURE;
 	}
 
-	sockfd = socket(AF_INET, SOCK_STREAM, 0);
+	*sockfd = socket(hints.ai_family, hints.ai_socktype, 0);
 
-	if (sockfd == -1) {
-		fputs("lascou", stderr);
-		printf("%d", __LINE__);
-		exit(1);
+	if (*sockfd == -1) {
+		report(__func__, strerror(errno));
+		return EXIT_FAILURE;
 	}
 
-	int y = 1;
-	setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &y, sizeof y);
-	status = bind(sockfd, info->ai_addr, info->ai_addrlen);
+	status = setsockopt(*sockfd, SOL_SOCKET, SO_REUSEADDR, &tmp,
+			sizeof tmp);
+
+	if (status == -1) {
+		report(__func__, strerror(errno));
+		return EXIT_FAILURE;
+	}
+
+	status = bind(*sockfd, (*info)->ai_addr, (*info)->ai_addrlen);
 
 	if (status != 0) {
-		fputs("lascou", stderr);
-		printf("%d", __LINE__);
-		perror("fudeu");
+		report(__func__, strerror(errno));
+		return EXIT_FAILURE;
 	}
 
-	status = listen(sockfd, 20);
+	status = listen(*sockfd, 20);
 
 	if (status != 0) {
-		fputs("lascou", stderr);
-		printf("%d", __LINE__);
-		exit(1);
+		report(__func__, strerror(errno));
+		return EXIT_FAILURE;
 	}
 
-	struct sockaddr_storage bagui_deles;
-	socklen_t len_deles;
-	int fd_dos_cara;
+	return EXIT_SUCCESS;
+}
+
+int
+accept_connection(int sockfd, struct sockaddr_storage *peer_address,
+		socklen_t *peer_addrlen, int *peer_sockfd)
+{
+	*peer_addrlen = sizeof(*peer_address);
+	*peer_sockfd = accept(sockfd, (struct sockaddr *)peer_address,
+			peer_addrlen);
+
+	if (*peer_sockfd == -1) {
+		report(__func__, strerror(errno));
+		return EXIT_FAILURE;
+	}
+
+	return EXIT_SUCCESS;
+}
+
+int
+main(void)
+{
+	int status;
+	int sockfd;
+	struct addrinfo *info;
+
+	status = setup_listening(&sockfd, &info);
+
+	if (status == EXIT_FAILURE) {
+		trace(__func__);
+		return EXIT_FAILURE;
+	}
+
+	struct sockaddr_storage peer_address;
+	socklen_t peer_addrlen;
+	int peer_sockfd;
 
 	while (1) {
-		perror("coiso\n");
-		len_deles = sizeof(bagui_deles);
-		fd_dos_cara = accept(sockfd, (struct sockaddr *)&bagui_deles,
-			&len_deles);
+		status = accept_connection(sockfd, &peer_address,
+				&peer_addrlen, &peer_sockfd);
 
-		if (fd_dos_cara > 0) {
-			char m[10000];
-			recv(fd_dos_cara, m, 10000, 0); 
-			char meusbagui[] =
-"HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n"
-"<html>\r\n"
-"<head><title>Oiiii.</title></head>\r\n"
-"<body>\r\n"
-"<h1 style='color:red'>Oi</h1>"
-"</body>\r\n"
-"</html>\r\n";
-			send(fd_dos_cara, meusbagui, strlen(meusbagui), 0);
+		if (status == EXIT_FAILURE) {
+			trace(__func__);
+			return EXIT_FAILURE;
 		}
 
-		close(fd_dos_cara);
+		char m[10000];
+		recv(peer_sockfd, m, 10000, 0); 
+
+		close(peer_sockfd);
 	}
 
 	close(sockfd);

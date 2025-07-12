@@ -7,19 +7,15 @@
 #include <netdb.h>
 #include <unistd.h>
 #include <stdlib.h>
+#include "shwc.h"
 
-#define report(func, err) fprintf(stderr, "%s:%d (%s): %s\n", __FILE__, \
-		__LINE__, func, err)
-#define trace(func) fprintf(stderr, "%s:%d (%s)\n", __FILE__, \
-		__LINE__, func)
-
-
-int
-setup_listening(int *sockfd, struct addrinfo **info)
+static int
+setup_listening(int *sockfd)
 {
 	int tmp = 1;
 	int status;
 	struct addrinfo hints;
+	struct addrinfo *info;
 
 	memset(&hints, 0, sizeof(hints));
 
@@ -27,7 +23,7 @@ setup_listening(int *sockfd, struct addrinfo **info)
 	hints.ai_socktype = SOCK_STREAM;
 	hints.ai_flags = AI_PASSIVE;
 
-	status = getaddrinfo(NULL, "8080", &hints, info);
+	status = getaddrinfo(NULL, "8080", &hints, &info);
 
 	if (status != 0) {
 		report(__func__, gai_strerror(status));
@@ -49,7 +45,7 @@ setup_listening(int *sockfd, struct addrinfo **info)
 		return EXIT_FAILURE;
 	}
 
-	status = bind(*sockfd, (*info)->ai_addr, (*info)->ai_addrlen);
+	status = bind(*sockfd, info->ai_addr, info->ai_addrlen);
 
 	if (status != 0) {
 		report(__func__, strerror(errno));
@@ -63,10 +59,11 @@ setup_listening(int *sockfd, struct addrinfo **info)
 		return EXIT_FAILURE;
 	}
 
+	freeaddrinfo(info);
 	return EXIT_SUCCESS;
 }
 
-int
+static int
 accept_connection(int sockfd, struct sockaddr_storage *peer_address,
 		socklen_t *peer_addrlen, int *peer_sockfd)
 {
@@ -82,14 +79,46 @@ accept_connection(int sockfd, struct sockaddr_storage *peer_address,
 	return EXIT_SUCCESS;
 }
 
+struct request {
+	char protocol[10];
+	char method[8];
+	char *url;
+};
+
+static int
+process_request(char msg[], size_t msglen, struct request *req)
+{
+}
+
+static int
+handle_request(int peer_sockfd)
+{
+	int status;
+	char msg[1024];
+	size_t msglen;
+	struct request req;
+
+	status = recv(peer_sockfd, msg, 1024, 0);
+
+	if (status == -1) {
+		report(__func__, strerr(errno));
+		return EXIT_FAILURE;
+	}
+
+	msglen = strlen(msg);
+
+	process_request(msg, msglen, &req);
+
+	return EXIT_SUCCESS;
+}
+
 int
 main(void)
 {
 	int status;
 	int sockfd;
-	struct addrinfo *info;
 
-	status = setup_listening(&sockfd, &info);
+	status = setup_listening(&sockfd);
 
 	if (status == EXIT_FAILURE) {
 		trace(__func__);
@@ -109,14 +138,12 @@ main(void)
 			return EXIT_FAILURE;
 		}
 
-		char m[10000];
-		recv(peer_sockfd, m, 10000, 0); 
+		handle_request(peer_sockfd);
 
 		close(peer_sockfd);
 	}
 
 	close(sockfd);
-	freeaddrinfo(info);
 
 	return 0;
 }
